@@ -1,335 +1,90 @@
-src/test/devops/ilp1/controllerwithoutDb
-
-Changepasswordtest.java
-package devops.ilp1.controllerwithoutDb;
-
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
-
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-
-class Changepasswordtest {
-
-    private MockMvc mockMvc;
-    private UserPasswordController controller;
-
-    @BeforeEach
-    void setup() {
-        controller = new UserPasswordController();
-        mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+pipeline {
+    agent any
+    environment{
+        //MAVEN_HOME='usr/share/maven'
+        SONAR_SCANNER=tool 'SonarScanner'
+        GITHUB_Credentials='githubtk'
     }
 
-    @Test
-    void testChangePassword_success() throws Exception {
-        mockMvc.perform(post("/changePassword")
-                .param("username", "john")
-                .param("oldPassword", "abc")
-                .param("newPassword", "xyz"))
-            .andExpect(status().isOk())
-            .andExpect(view().name("success"))
-            .andExpect(model().attributeExists("message"));
+    stages {
+        stage('checkout') {
+            steps {
+                echo 'Checkout from github repository'
+                git url:'https://github.com/blackwidow5067/webapp',credentialsId:GITHUB_Credentials,branch:'master'
+            }
+        }
+        stage('Compile') {
+            steps {
+                echo 'Compiling'
+                sh 'mvn compile'
+            }
+        }//compile
+        stage('test') {
+            steps {
+                echo 'Testing'
+                sh 'mvn test'
+            }
+        }//test
+        stage('build') {
+            steps {
+                echo 'Package'
+                sh 'mvn package -DskipTests=true'
+            }
+        }//build
+        stage('Quality Check') {
+            steps {
+                echo 'Quality Check'
+                withSonarQubeEnv('sonar'){
+                    sh '''mvn clean verify sonar:sonar\
+                    -Dsonar.projectKey=MyProjectKey\
+                    -Dsonar.projectName=Project2july\
+                    -Dsonar.projectVersion=1.0\
+                    -Dsonar.source=src/main/webapp\
+                    -Dsonar.java.binaries=target/classes\
+                    -Dsonar.host.url=http://localhost:9000
+                    '''
+                }
+            }
+        }//QualityCheck
+        stage('UAT - Functional test -- Deploy to Tomcat') {
+            steps {
+                echo 'Tomcat'
+                sh 'mvn package -DskipTests=true'
+                deploy adapters:[tomcat8(url:'http://localhost:5050/',credentialsId:'tomcat')],war:"target/*.war",contextPath:'julyApp'
+            }
+        }//Tomcat
+        stage('Publish Artifact') {
+            steps {
+                script{
+                    def server=Artifactory.server('artifactory')
+                    def rtMaven=Artifactory.newMavenBuild()
+                    rtMaven.resolver server:server, releaseRepo:'maven-libs-release/',snapshotRepo:'maven-libs-snapshot/'
+                    rtMaven.deployer server:server, releaseRepo:'maven-libs-release-local/',snapshotRepo:'maven-libs-snapshot-local/'
+                    
+                    rtMaven.tool='Apache Maven 3.8.7'
+                    def buildInfo=rtMaven.run pom:'pom.xml',goals:'install'
+                    server.publishBuildInfo buildInfo
+                }
+            }
+        }//jfrog
     }
-}
-logintest.java
-package devops.ilp1.controllerwithoutDb;
-
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
-
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-
-class logintest {
-    private MockMvc mockMvc;
-    private UserLoginController controller;
-
-    @BeforeEach
-    void setup() {
-        controller = new UserLoginController();
-        mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
-    }
-
-    @Test
-    void testLogin_success() throws Exception {
-        mockMvc.perform(post("/login")
-                .param("username", "john")
-                .param("password", "abc"))
-            .andExpect(status().isOk())
-            .andExpect(view().name("success"))
-            .andExpect(model().attributeExists("username"));
-    }
-
-    @Test
-    void testLogin_failure() throws Exception {
-        mockMvc.perform(post("/login")
-                .param("username", "john")
-                .param("password", "wrong"))
-            .andExpect(status().isOk())
-            .andExpect(view().name("fail"))
-            .andExpect(model().attributeExists("error"));
-    }
-}
-registertest.java
-package devops.ilp1.controllerwithoutDb;
-
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
-
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-
-class registertest {
-    private MockMvc mockMvc;
-    private UserRegisterController controller;
-
-    @BeforeEach
-    void setup() {
-        controller = new UserRegisterController();
-        mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
-    }
-
-    @Test
-    void testRegister_success() throws Exception {
-        mockMvc.perform(post("/register")
-                .param("username", "alice")
-                .param("password", "secret"))
-            .andExpect(status().isOk())
-            .andExpect(view().name("success"))
-            .andExpect(model().attributeExists("message"));
-    }
-}
-📂 src/test/devops/ilp1/service
-
-userservicetest.java
-package devops.ilp1.service;
-
-import static org.mockito.Mockito.*;
-import static org.junit.jupiter.api.Assertions.*;
-
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import devops.ilp1.model.User;
-
-class userservicetest {
-    private UserService userService;
-
-    @BeforeEach
-    void setup() {
-        userService = new UserService();
-        userService.userDb = mock(devops.ilp1.db.UserDb.class);
-    }
-
-    @Test
-    void testRegisterAndLogin() {
-        User u = new User("bob", "pwd");
-        when(userService.userDb.getUser("bob")).thenReturn(null);
-        boolean reg = userService.register(u);
-        assertTrue(reg);
-        verify(userService.userDb).saveUser(u);
-
-        when(userService.userDb.getUser("bob")).thenReturn(u);
-        boolean login = userService.login("bob", "pwd");
-        assertTrue(login);
-    }
-
-    @Test
-    void testChangePassword() {
-        User existing = new User("bob", "old");
-        when(userService.userDb.getUser("bob")).thenReturn(existing);
-
-        boolean changed = userService.changePassword("bob", "old", "new");
-        assertTrue(changed);
-        assertEquals("new", existing.getPassword());
-        verify(userService.userDb).saveUser(existing);
-    }
-}
-📂 src/integration-test/java/devops/ilp1
-
-integrationtest.java
-package devops.ilp1;
-
-import static org.junit.jupiter.api.Assertions.*;
-
-import org.junit.jupiter.api.Test;
-import devops.ilp1.db.UserDb;
-import devops.ilp1.service.UserService;
-
-class integrationtest {
-    @Test
-    void testFullFlow() {
-        UserDb db = new UserDb();
-        UserService svc = new UserService(db);
-
-        assertTrue(svc.register(new devops.ilp1.model.User("u1", "p1")));
-        assertTrue(svc.login("u1", "p1"));
-        assertTrue(svc.changePassword("u1", "p1", "p2"));
-        assertTrue(svc.login("u1", "p2"));
-    }
-}
-loginfunctionaltest.java
-package devops.ilp1;
-
-import static org.junit.jupiter.api.Assertions.*;
-
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import devops.ilp1.db.UserDb;
-import devops.ilp1.model.User;
-import devops.ilp1.service.UserService;
-
-class loginfunctionaltest {
-    private UserService svc;
-
-    @BeforeEach
-    void setup() {
-        svc = new UserService(new UserDb());
-        svc.register(new User("fun", "funpass"));
-    }
-
-    @Test
-    void testLoginFailure() {
-        assertFalse(svc.login("fun", "wrongpass"));
-    }
-}
-📂 src/main/java/devops/ilp1/controllerwithoutdb
-
-userlogincontroller.java
-package devops.ilp1.controllerwithoutDb;
-
-import org.springframework.stereotype.Controller;
-import org.springframework.ui.Model;
-import org.springframework.web.bind.annotation.*;
-
-@Controller
-public class UserLoginController {
-    @PostMapping("/login")
-    public String login(@RequestParam String username,
-                        @RequestParam String password,
-                        Model model) {
-        if ("abc".equals(password)) {
-            model.addAttribute("username", username);
-            return "success";
-        } else {
-            model.addAttribute("error", "Invalid credentials");
-            return "fail";
+    post{
+        success{
+            echo "notify stakeholders when success"
+        }
+        unstable{
+            echo "notify test engineers"
+        }
+        failure{
+            echo "notify failure status to applicable stakeholders"
+        }
+        changed{
+            echo "notify something changed.."
+        }
+        always{
+            echo "Clean/wrapup/notify...always"
         }
     }
 }
-userpasswordcontroller.java
-package devops.ilp1.controllerwithoutDb;
 
-import org.springframework.stereotype.Controller;
-import org.springframework.ui.Model;
-import org.springframework.web.bind.annotation.*;
 
-@Controller
-public class UserPasswordController {
-    @PostMapping("/changePassword")
-    public String changePwd(@RequestParam String username,
-                            @RequestParam String oldPassword,
-                            @RequestParam String newPassword,
-                            Model model) {
-        // hardcoded check
-        if ("abc".equals(oldPassword)) {
-            model.addAttribute("message", "Password updated");
-            return "success";
-        } else {
-            model.addAttribute("message", "Failed to update");
-            return "fail";
-        }
-    }
-}
-userregistercontroller.java
-package devops.ilp1.controllerwithoutDb;
-
-import org.springframework.stereotype.Controller;
-import org.springframework.ui.Model;
-import org.springframework.web.bind.annotation.*;
-
-@Controller
-public class UserRegisterController {
-    @PostMapping("/register")
-    public String register(@RequestParam String username,
-                           @RequestParam String password,
-                           Model model) {
-        model.addAttribute("message", "Welcome " + username);
-        return "success";
-    }
-}
-📂 src/main/java/devops/ilp1/db
-
-userDb.java
-package devops.ilp1.db;
-
-import java.util.concurrent.ConcurrentHashMap;
-import devops.ilp1.model.User;
-
-public class UserDb {
-    private final ConcurrentHashMap<String, User> store = new ConcurrentHashMap<>();
-    public User getUser(String username) { return store.get(username); }
-    public void saveUser(User u) { store.put(u.getUsername(), u); }
-}
-📂 src/main/java/devops/ilp1/model
-
-user.java
-package devops.ilp1.model;
-
-public class User {
-    private String username;
-    private String password;
-    public User() {}
-    public User(String u, String p) { username = u; password = p; }
-    public String getUsername() { return username; }
-    public String getPassword() { return password; }
-    public void setPassword(String p) { password = p; }
-}
-📂 src/main/java/devops/ilp1/service
-
-userservice.java
-package devops.ilp1.service;
-
-import devops.ilp1.db.UserDb;
-import devops.ilp1.model.User;
-
-public class UserService {
-    public final UserDb userDb;
-    public UserService(UserDb db) { this.userDb = db; }
-    public UserService() { this.userDb = null; } // for controller tests
-
-    public boolean register(User u) {
-        if (userDb.getUser(u.getUsername()) != null) return false;
-        userDb.saveUser(u);
-        return true;
-    }
-
-    public boolean login(String username, String password) {
-        User u = userDb.getUser(username);
-        return u != null && u.getPassword().equals(password);
-    }
-
-    public boolean changePassword(String username, String oldPwd, String newPwd) {
-        User u = userDb.getUser(username);
-        if (u == null || !u.getPassword().equals(oldPwd)) return false;
-        u.setPassword(newPwd);
-        userDb.saveUser(u);
-        return true;
-    }
-}
-📂 src/main/webapp
-
-These are straightforward JSPs—for success, failure, registration, etc. Here's a quick sketch for success.jsp:
-
-<%@ page contentType="text/html;charset=UTF-8" %>
-<html><body>
-<h2>Success</h2>
-<p>${message}</p>
-</body></html>
-You’d make similar pages for register.jsp, fail.jsp, forgotpassword.jsp, index.jsp, and WEB-INF/web.xml
